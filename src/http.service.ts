@@ -4,8 +4,9 @@ export class Response {
   public body: Record<string, unknown> | undefined;
 }
 export class HttpService {
+  static readonly responseOk = 200;
   static request(url: string, options: unknown): Response {
     console.log(url, options);
-    return { url, status: 200, body: { data: {} } };
+    return { url, status: HttpService.responseOk, body: { data: {} } };
   }
 }
