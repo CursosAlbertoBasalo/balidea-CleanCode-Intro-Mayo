@@ -1,11 +1,17 @@
+/* eslint-disable max-depth */
+/* eslint-disable max-statements */
+/* eslint-disable max-lines-per-function */
 import { Booking, BookingStatus } from "./booking";
 import { DataBase } from "./data_base";
+import { PaymentMethod, PaymentsService } from "./payments.service";
+import { SmtpService } from "./smtp.service";
 import { Traveler } from "./traveler";
 import { Trip } from "./trip";
-// * 🧼 🚿  CLEAN:  PascalCase, expressive and easy distinguible (also on file)
+
 export class BookingsService {
   private booking!: Booking;
-  private trip!: Trip; // * 🧼 🚿 CLEAN: consistent naming
+  private trip!: Trip;
+  private traveler!: Traveler;
 
   /**
    * Requests a new booking
@@ -14,7 +20,7 @@ export class BookingsService {
    * @param {number} passengersCount - the number of passengers to reserve
    * @param {string} cardNumber - the card number to pay with
    * @param {string} cardExpiry - the card expiry date
-   * @param {string} cardCvc - the card CVC
+   * @param {string} cardCVC - the card CVC
    * @param {boolean} hasPremiumFoods - if the traveler has premium foods
    * @param {number} extraLuggageKilos - the number of extra luggage kilos
    * @returns {Booking} the new booking object
@@ -22,21 +28,30 @@ export class BookingsService {
    */
   public request(
     travelerId: string,
-    tripId: string, // * 🧼 🚿 CLEAN: camelCase
-    passengersCount: number, // * 🧼 🚿 CLEAN: distinction between a list and a value
+    tripId: string,
+    passengersCount: number,
     cardNumber: string,
-    cardExpiry: string, // * 🧼 🚿 CLEAN: coherent name
-    cardCvc: string, // * 🧼 🚿 CLEAN: uppercase consistency
-    hasPremiumFoods: boolean, // * 🧼 🚿 CLEAN: boolean flags
+    cardExpiry: string,
+    cardCVC: string,
+    hasPremiumFoods: boolean,
     extraLuggageKilos: number,
   ): Booking {
-    this.create(travelerId, tripId, passengersCount, hasPremiumFoods, extraLuggageKilos);
-    // * 🧼 🚿 CLEAN: remove empty line
-    this.save();
-    this.pay(cardNumber, cardExpiry, cardCvc);
-    return this.booking;
+    // ToDo: 💩 🤢 validation conditional and nested conditionals
+    if (travelerId && tripId) {
+      this.create(travelerId, tripId, passengersCount, hasPremiumFoods, extraLuggageKilos);
+      this.save();
+      // ToDo: 💩 🤢 multiple conditions
+      if (cardNumber && cardExpiry && cardCVC) {
+        this.pay(cardNumber, cardExpiry, cardCVC);
+      } else {
+        this.booking.status = BookingStatus.ERROR;
+      }
+      return this.booking;
+    } else {
+      throw new Error("Invalid parameters");
+    }
   }
-  // * 🧼 🚿 CLEAN: clear intention, non redundant name, no comment
+
   private create(
     travelerId: string,
     tripId: string,
@@ -50,14 +65,14 @@ export class BookingsService {
     this.booking.hasPremiumFoods = hasPremiumFoods;
     this.booking.extraLuggageKilos = extraLuggageKilos;
   }
-  // * 🧼 🚿 CLEAN: start with get and express the intention and use consistent naming for parameters
+
   private getValidatedPassengersCount(travelerId: string, passengersCount: number) {
-    const maxPassengersCount = 6; // * 🧼 🚿 CLEAN: remove magic number
+    const maxPassengersCount = 6;
     if (passengersCount > maxPassengersCount) {
       throw new Error(`Nobody can't have more than ${maxPassengersCount} passengers`);
     }
-    // * 🧼 🚿 CLEAN: remove comments by using clear names
-    const maxNonVipPassengersCount = 4; // * 🧼 🚿 CLEAN: remove magic number
+    const maxNonVipPassengersCount = 4;
+    // ToDo: 💩 🤢 complex conditions
     if (this.isNonVip(travelerId) && passengersCount > maxNonVipPassengersCount) {
       throw new Error(`No VIPs cant't have more than ${maxNonVipPassengersCount} passengers`);
     }
@@ -66,40 +81,62 @@ export class BookingsService {
     }
     return passengersCount;
   }
-  // * 🧼 🚿 CLEAN: boolean verbs should start with flags
+
   private isNonVip(travelerId: string): boolean {
-    const theTraveler = DataBase.selectOne<Traveler>(`SELECT * FROM travelers WHERE id = '${travelerId}'`);
-    return theTraveler.isVip;
+    // ToDo: 💩 🤢 several abstraction levels
+    this.traveler = DataBase.selectOne<Traveler>(`SELECT * FROM travelers WHERE id = '${travelerId}'`);
+    return this.traveler.isVip;
   }
 
   private checkAvailability(tripId: string, passengersCount: number) {
     this.trip = DataBase.selectOne<Trip>(`SELECT * FROM trips WHERE id = '${tripId}'`);
-    // * 🧼 🚿 CLEAN: flags should start with flag verbs
     const hasAvailableSeats = this.trip.availablePlaces >= passengersCount;
     if (!hasAvailableSeats) {
       throw new Error("There are no seats available in the trip");
     }
   }
-  // * 🧼 🚿 CLEAN: remove redundant comments and words
+
   private save() {
     this.booking.id = DataBase.insert<Booking>(this.booking);
   }
+
   private pay(cardNumber: string, cardExpiry: string, cardCVC: string) {
     this.booking.price = this.calculatePrice();
-    // To Do: Call a Payment gateway to pay with card info
-    console.log(`Paying ${this.booking.price} with ${cardNumber} and ${cardExpiry} and ${cardCVC}`);
-    this.booking.paymentId = "payment fake identification";
-    this.booking.status = BookingStatus.PAID;
+    const payments = new PaymentsService();
+    const paymentId = payments.payBooking(
+      this.booking,
+      PaymentMethod.CREDIT_CARD,
+      cardNumber,
+      cardExpiry,
+      cardCVC,
+      "",
+      "",
+      "",
+    );
+    if (paymentId != "") {
+      this.booking.paymentId = "payment fake identification";
+      this.booking.status = BookingStatus.PAID;
+    } else {
+      this.booking.status = BookingStatus.ERROR;
+      const smtp = new SmtpService();
+      // ToDo: 💩 🤢 several abstraction levels
+      smtp.sendMail(
+        "payments@astrobookings.com",
+        this.traveler.email,
+        "Payment error",
+        `Using card ${cardNumber} amounting to ${this.booking.price}`,
+      );
+    }
     DataBase.update(this.booking);
   }
-  // * 🧼 🚿 CLEAN: use verbs to clarify intention
+
   private calculatePrice(): number {
-    // * 🧼 🚿 CLEAN: remove magic number
     const millisecondsPerSecond = 1000;
     const secondsPerMinute = 60;
     const minutesPerHour = 60;
     const hoursPerDay = 24;
-    // * 🧼 🚿 CLEAN: use a consistent name pattern
+
+    // ToDo: 💩 🤢 large process with comments
     const millisecondsPerDay = millisecondsPerSecond * secondsPerMinute * minutesPerHour * hoursPerDay;
     const stayingNights = Math.round(this.trip.endDate.getTime() - this.trip.startDate.getTime() / millisecondsPerDay);
     // Calculate staying price
@@ -108,7 +145,7 @@ export class BookingsService {
     const flightPrice = this.trip.flightPrice + (this.booking.hasPremiumFoods ? this.trip.premiumFoodPrice : 0);
     const passengerPrice = flightPrice + stayingPrice;
     const passengersPrice = passengerPrice * this.booking.passengersCount;
-    // Calculate luggage price for all passengers of the booking
+    // Calculate extra price once for all passengers of the booking
     const extraTripPrice = this.booking.extraLuggageKilos * this.trip.extraLuggagePricePerKilo;
     return passengersPrice + extraTripPrice;
   }
