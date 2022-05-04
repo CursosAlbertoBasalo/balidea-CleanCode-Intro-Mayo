@@ -11,7 +11,7 @@ export enum PaymentMethod {
   TRANSFER,
 }
 
-// ToDo: 💩 🤢 sAn enum and a switch 😱
+// ToDo: 💩 🤢 An enum and a switch 😱
 
 export class PaymentsService {
   private cardWayAPIUrl = "https://card-way.com/";
