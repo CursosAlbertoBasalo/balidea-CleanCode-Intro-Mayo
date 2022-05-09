@@ -6,20 +6,28 @@ import { Trip, TripStatus } from "./trip";
 
 export class TripsService {
   public cancelTrip(tripId: string) {
-    // * 🧼 🚿 CLEAN:  same level of abstraction statements
     const trip: Trip = this.selectTrip(tripId);
     trip.status = TripStatus.CANCELLED;
     this.updateTrip(trip);
     const bookings: Booking[] = this.selectBookings(tripId);
-    // * 🧼 🚿 CLEAN:  reduce nesting
     if (bookings.length > 0) {
       this.cancelBookings(bookings, trip);
     }
   }
 
+  public findTrips(destination: string, startDate: Date, endDate: Date): Trip[] {
+    // ToDo: 💩 🤢 Validation of primitive parameters
+    if (startDate > endDate) {
+      throw new Error("Invalid dates");
+    }
+    const trips: Trip[] = DataBase.select(
+      `SELECT * FROM trips WHERE destination = '${destination}' AND start_date >= '${startDate}' AND end_date <= '${endDate}'`,
+    );
+    return trips;
+  }
+
   private cancelBookings(bookings: Booking[], trip: Trip) {
     const smtp = new SmtpService();
-    // * 🧼 🚿 CLEAN:  no nested structures nor complex blocks
     for (const booking of bookings) {
       this.cancelBooking(booking, smtp, trip);
     }
@@ -39,7 +47,6 @@ export class TripsService {
     this.sendCancellationEmail(smtp, traveler, trip);
   }
 
-  // * 🧼 🚿 CLEAN:  same level of abstraction functions
   private sendCancellationEmail(smtp: SmtpService, traveler: Traveler, trip: Trip) {
     smtp.sendMail(
       "trips@astrobookings.com",
