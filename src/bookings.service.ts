@@ -1,144 +1,128 @@
-import { Booking, BookingStatus } from "./booking";
+import { BookingDto } from "./booking.dto";
+import { BookingsRequestDto } from "./bookings_request.dto";
+import { BookingsRequestVo } from "./bookings_request.vo";
+import { BookingStatus } from "./booking_status.enum";
+import { CreditCardVo } from "./credit_card.vo";
 import { DataBase } from "./data_base";
+import { DateRangeVo } from "./date_range.vo";
+import { NotificationsService } from "./notifications.service";
 import { PaymentsService } from "./payments.service";
 import { SmtpService } from "./smtp.service";
-import { Traveler } from "./traveler";
-import { Trip } from "./trip";
+import { TravelerDto } from "./traveler.dto";
+import { TripDto } from "./trip.dto";
 
 export class BookingsService {
-  private booking!: Booking;
-  private trip!: Trip;
-  private traveler!: Traveler;
+  private booking!: BookingDto;
+  private trip!: TripDto;
+  private traveler!: TravelerDto;
+  private bookingsRequest!: BookingsRequestVo;
 
   /**
    * Requests a new booking
-   * @param {string} travelerId - the id of the traveler soliciting the booking
-   * @param {string} tripId - the id of the trip to book
-   * @param {number} passengersCount - the number of passengers to reserve
-   * @param {string} cardNumber - the card number to pay with
-   * @param {string} cardExpiry - the card expiry date
-   * @param {string} cardCVC - the card CVC
-   * @param {boolean} hasPremiumFoods - if the traveler has premium foods
-   * @param {number} extraLuggageKilos - the number of extra luggage kilos
-   * @returns {Booking} the new booking object
+   * @param bookingsRequestDTO - the booking request
+   * @returns {BookingDto} the new booking object
    * @throws {Error} if the booking is not possible
    */
-  public request(
-    travelerId: string,
-    tripId: string,
-    passengersCount: number,
-    cardNumber: string,
-    cardExpiry: string,
-    cardCVC: string,
-    hasPremiumFoods: boolean,
-    extraLuggageKilos: number,
-  ): Booking {
-    // ToDo: 💩 🤢 Several incoming parameters
-    if (this.hasEntitiesId(travelerId, tripId) === false) {
-      throw new Error("Invalid parameters");
-    }
-    // ToDo: 💩 🤢 Several internal parameters
-    this.create(travelerId, tripId, passengersCount, hasPremiumFoods, extraLuggageKilos);
+  public request(bookingsRequestDTO: BookingsRequestDto): BookingDto {
+    // * 🧼 🚿 CLEAN:  Data transfer object to avoid multiple parameters on methods signatures
+    // * 🧼 🚿 CLEAN:  Saved as a property on the class to reduce method parameters
+    this.bookingsRequest = new BookingsRequestVo(bookingsRequestDTO);
+    this.create();
     this.booking.id = this.save();
-    // ToDo: 💩 🤢 Credit card primitives
-    this.pay(cardNumber, cardExpiry, cardCVC);
+    this.pay();
+    this.notify();
     return this.booking;
   }
+  notify() {
+    if (this.booking.id === undefined) {
+      return;
+    }
+    const notifications = new NotificationsService();
+    return notifications.notifyBookingConfirmation({
+      recipient: this.traveler.email,
+      tripDestination: this.trip.destination,
+      bookingId: this.booking.id,
+    });
+  }
 
-  private pay(cardNumber: string, cardExpiry: string, cardCVC: string) {
-    if (this.hasCreditCard(cardNumber, cardExpiry, cardCVC)) {
-      this.payWithCreditCard(cardNumber, cardExpiry, cardCVC);
-    } else {
+  private pay() {
+    try {
+      this.payWithCreditCard(this.bookingsRequest.card);
+    } catch (error) {
       this.booking.status = BookingStatus.ERROR;
+      DataBase.update(this.booking);
+      throw error;
     }
   }
 
-  private hasEntitiesId(travelerId: string, tripId: string): boolean {
-    return travelerId !== "" && tripId !== "";
+  private create(): void {
+    this.bookingsRequest.passengersCount = this.getValidatedPassengersCount();
+    this.checkAvailability();
+    this.booking = new BookingDto(
+      this.bookingsRequest.tripId,
+      this.bookingsRequest.travelerId,
+      this.bookingsRequest.passengersCount,
+    );
+    this.booking.hasPremiumFoods = this.bookingsRequest.hasPremiumFoods;
+    this.booking.extraLuggageKilos = this.bookingsRequest.extraLuggageKilos;
   }
 
-  private hasCreditCard(cardNumber: string, cardExpiry: string, cardCVC: string): boolean {
-    return cardNumber !== "" && cardExpiry !== "" && cardCVC !== "";
+  private getValidatedPassengersCount() {
+    this.assertPassengers();
+
+    return this.bookingsRequest.passengersCount;
   }
 
-  private create(
-    travelerId: string,
-    tripId: string,
-    passengersCount: number,
-    hasPremiumFoods: boolean,
-    extraLuggageKilos: number,
-  ): void {
-    passengersCount = this.getValidatedPassengersCount(travelerId, passengersCount);
-    this.checkAvailability(tripId, passengersCount);
-    this.booking = new Booking(tripId, travelerId, passengersCount);
-    this.booking.hasPremiumFoods = hasPremiumFoods;
-    this.booking.extraLuggageKilos = extraLuggageKilos;
+  private assertPassengers() {
+    this.assertPassengersForVip();
+    this.assertPassengersForNonVip();
   }
 
-  private getValidatedPassengersCount(travelerId: string, passengersCount: number) {
+  private assertPassengersForVip() {
     const maxPassengersCount = 6;
-    if (passengersCount > maxPassengersCount) {
+    if (this.bookingsRequest.passengersCount > maxPassengersCount) {
       throw new Error(`Nobody can't have more than ${maxPassengersCount} passengers`);
     }
-    const maxNonVipPassengersCount = 4;
-    if (this.hasTooManyPassengersForNonVip(travelerId, passengersCount, maxNonVipPassengersCount)) {
-      throw new Error(`No VIPs cant't have more than ${maxNonVipPassengersCount} passengers`);
-    }
-    if (passengersCount <= 0) {
-      passengersCount = 1;
-    }
-    return passengersCount;
   }
-
-  private hasTooManyPassengersForNonVip(travelerId: string, passengersCount: number, maxNonVipPassengersCount: number) {
-    const isTooMuchForNonVip = passengersCount > maxNonVipPassengersCount;
-    const isNonVip = this.isNonVip(travelerId);
-    return isNonVip && isTooMuchForNonVip;
+  private assertPassengersForNonVip() {
+    const maxNonVipPassengersCount = 4;
+    const isTooMuchForNonVip = this.bookingsRequest.passengersCount > maxNonVipPassengersCount;
+    if (this.isNonVip(this.bookingsRequest.travelerId) && isTooMuchForNonVip) {
+      throw new Error(`Nobody can't have more than ${maxNonVipPassengersCount} passengers`);
+    }
   }
 
   private isNonVip(travelerId: string): boolean {
     this.traveler = this.selectTraveler(travelerId);
-    return this.traveler.isVip == false;
+    return this.traveler.isVip;
   }
 
-  private checkAvailability(tripId: string, passengersCount: number) {
-    this.trip = this.selectTrip(tripId);
-    const hasNoAvailableSeats = this.trip.availablePlaces < passengersCount;
-    if (hasNoAvailableSeats) {
+  private checkAvailability() {
+    this.trip = this.selectTrip(this.bookingsRequest.tripId);
+    const hasAvailableSeats = this.trip.availablePlaces >= this.bookingsRequest.passengersCount;
+    if (!hasAvailableSeats) {
       throw new Error("There are no seats available in the trip");
     }
   }
 
-  private selectTrip(tripId: string) {
-    return DataBase.selectOne<Trip>(`SELECT * FROM trips WHERE id = '${tripId}'`);
-  }
-
-  private selectTraveler(travelerId: string) {
-    return DataBase.selectOne<Traveler>(`SELECT * FROM travelers WHERE id = '${travelerId}'`);
-  }
-
   private save() {
-    return DataBase.insert<Booking>(this.booking);
+    return DataBase.insert<BookingDto>(this.booking);
   }
 
-  private update() {
-    DataBase.update(this.booking);
-  }
-
-  private payWithCreditCard(cardNumber: string, cardExpiry: string, cardCVC: string) {
+  private payWithCreditCard(creditCard: CreditCardVo) {
     this.booking.price = this.calculatePrice();
-    const paymentId = this.payPriceWithCard(cardNumber, cardExpiry, cardCVC);
+    const paymentId = this.payPriceWithCard(creditCard);
     if (paymentId != "") {
       this.setPaymentStatus();
     } else {
-      this.processNonPayedBooking(cardNumber);
+      this.processNonPayedBooking(creditCard.number);
     }
     this.update();
   }
 
-  private payPriceWithCard(cardNumber: string, cardExpiry: string, cardCVC: string) {
-    const paymentsService = new PaymentsService();
-    const paymentId = paymentsService.payWithCard(this.booking, cardNumber, cardExpiry, cardCVC);
+  private payPriceWithCard(creditCard: CreditCardVo) {
+    const payments = new PaymentsService(this.booking);
+    const paymentId = payments.payWithCard(creditCard);
     return paymentId;
   }
 
@@ -149,12 +133,13 @@ export class BookingsService {
 
   private sendPaymentErrorEmail(cardNumber: string) {
     const smtp = new SmtpService();
-    smtp.sendMail(
-      "payments@astrobookings.com",
-      this.traveler.email,
-      "Payment error",
-      `Using card ${cardNumber} amounting to ${this.booking.price}`,
-    );
+    // * 🧼 🚿 CLEAN:  Data transfer object to avoid multiple parameters on methods signatures
+    smtp.sendMail({
+      from: "payments@astrobookings.com",
+      to: this.traveler.email,
+      subject: "Payment error",
+      body: `Using card ${cardNumber} amounting to ${this.booking.price}`,
+    });
   }
 
   private setPaymentStatus() {
@@ -163,9 +148,7 @@ export class BookingsService {
   }
 
   private calculatePrice(): number {
-    const millisecondsPerDay = this.calculateMillisecondsPerDay();
-    const stayingNights = this.calculateStayingNights(millisecondsPerDay);
-
+    const stayingNights = new DateRangeVo(this.trip.startDate, this.trip.endDate).toWholeDays;
     const passengerPrice = this.calculatePassengerPrice(stayingNights);
     const passengersPrice = passengerPrice * this.booking.passengersCount;
     const extraTripPrice = this.calculateExtraPricePerTrip();
@@ -184,22 +167,14 @@ export class BookingsService {
     return passengerPrice;
   }
 
-  private calculateStayingNights(millisecondsPerDay: number) {
-    // ToDo: 💩 🤢 Date range primitives
-    const millisecondsTripDuration = this.trip.endDate.getTime() - this.trip.startDate.getTime();
-    const rawStayingNights = millisecondsTripDuration / millisecondsPerDay;
-    const stayingNights = Math.round(rawStayingNights);
-    return stayingNights;
+  private selectTrip(tripId: string) {
+    return DataBase.selectOne<TripDto>(`SELECT * FROM trips WHERE id = '${tripId}'`);
   }
 
-  private calculateMillisecondsPerDay() {
-    const millisecondsPerSecond = 1000;
-    const secondsPerMinute = 60;
-    const minutesPerHour = 60;
-    const hoursPerDay = 24;
-    const millisecondsPerMinute = millisecondsPerSecond * secondsPerMinute;
-    const millisecondsPerHour = millisecondsPerMinute * minutesPerHour;
-    const millisecondsPerDay = millisecondsPerHour * hoursPerDay;
-    return millisecondsPerDay;
+  private selectTraveler(travelerId: string) {
+    return DataBase.selectOne<TravelerDto>(`SELECT * FROM travelers WHERE id = '${travelerId}'`);
+  }
+  private update() {
+    DataBase.update(this.booking);
   }
 }
