@@ -11,6 +11,8 @@ export class PaymentsService {
   private payMeAPIUrl = "https://pay-me.com/v1/payments";
   private bankEmail = "humanprocessor@bancka.com";
 
+  // ToDo : 💩 🤢 Open Close violation
+
   constructor(private booking: BookingDto) {}
 
   public payWithCard(creditCard: CreditCardVo) {

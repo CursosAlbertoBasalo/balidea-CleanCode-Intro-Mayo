@@ -9,6 +9,8 @@ import { TravelerDto } from "./traveler.dto";
 import { TripDto } from "./trip.dto";
 import { TripStatus } from "./trip_status.enum";
 
+// ToDo : 💩 🤢 Too many responsibilities
+
 export class TripsService {
   private tripId = "";
   private trip!: TripDto;
