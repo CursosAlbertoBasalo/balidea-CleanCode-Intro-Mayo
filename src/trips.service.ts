@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/naming-convention */
 import { Booking, BookingStatus } from "./booking";
 import { DataBase } from "./data_base";
 import { SmtpService } from "./smtp.service";
