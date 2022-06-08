@@ -24,7 +24,7 @@
     "no-magic-numbers": [
       "warn",
       {
-        "detectObjects": false,
+        "detectObjects": true,
         "enforceConst": true,
         "ignore": [
           -1,

@@ -8,6 +8,7 @@ import { Traveler } from "./traveler";
 import { Trip, TripStatus } from "./trip";
 
 export class TripsService {
+  // eslint-disable-next-line @typescript-eslint/naming-convention
   public cancelTrip(tripId: string) {
     // ToDo: 💩 🤢 several abstraction levels
     // ToDo: 💩 🤢 nested structures

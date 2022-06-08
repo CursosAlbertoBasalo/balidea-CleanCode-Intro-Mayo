@@ -1,3 +1,4 @@
+/* eslint-disable no-magic-numbers */
 export class Response {
   public url: string | undefined;
   public status: number | undefined;

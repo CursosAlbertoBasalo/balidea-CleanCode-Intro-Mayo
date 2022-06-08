@@ -1,3 +1,4 @@
+/* eslint-disable no-magic-numbers */
 /* eslint-disable max-statements */
 /* eslint-disable max-depth */
 /* eslint-disable max-lines-per-function */
